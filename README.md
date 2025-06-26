@@ -34,17 +34,20 @@ To validate performance, the system benchmarks model size and average inference 
 
 ## 📁 Project Structure
 ``` text
-├── EDA.ipynb                                  # Jupyter notebook containing EDA, model training, and ONNX export
-├── intel_cpu_dataset.csv                      # Raw telemetry dataset used for anomaly detection
-├── isolation_forest_optimized.pkl             # Trained Isolation Forest model (used to generate pseudo-labels)
-│
-├── rf_anomaly_detector.onnx                   # ONNX model exported from Random Forest classifier
-├── rf_anomaly_detector_quant.onnx             # Quantized version of the ONNX model (int8)
-├── rf_test_opset11.onnx                       # Test export for ONNX opset version verification
-│
-├── README.md                                  # Project overview, setup instructions, and evaluation results
-├── .gitignore                                 # Files and directories ignored by Git
-├── mlruns/                                    # MLflow experiment tracking directory
+├── .git/                          # Git repository folder (hidden)
+├── data/
+│   └── intel_cpu_dataset.csv      # Telemetry dataset (from Hugging Face)
+├── images/
+│   ├── 01_Clone_the_Repository.jpg
+│   └── 02_Set_Up_a_Virtual_Environment.jpg
+├── model/
+│   ├── isolation_forest_optimized.pkl   # Trained Isolation Forest model
+│   ├── RandomForestClassifier.pkl       # Supervised proxy model
+│   └── rf_anomaly_detector.onnx         # ONNX-exported model for deployment
+├── src/
+│   └── EDA.ipynb                  # Notebook for data exploration and evaluation
+├── .gitignore                    # Git ignore rules
+└── README.md                     # Project overview and instructions
 ```
 ---
 ## 🔧 Installation
@@ -67,7 +70,7 @@ venv\Scripts\activate
 
 3. Run the Notebook
 - Launch Jupyter Notebook or JupyterLab:
-- Open EDA.ipynb and run through the cells to:
+- Open src/EDA.ipynb and run through the cells to:
   - Load telemetry data
   - Perform EDA
   - Train Isolation Forest and Random Forest proxy models
@@ -76,17 +79,20 @@ venv\Scripts\activate
 ---
 ## 📄 Project Report
 #### 🧭 Scenario Overview
-Modern edge devices and industrial systems increasingly depend on real-time telemetry data to ensure reliability, safety, and performance. These devices generate high-frequency measurements such as CPU usage, memory consumption, execution time, and power usage — all of which can be monitored to detect early signs of system stress, hardware failure, or performance degradation.
 
-The objective of this project is to **develop and evaluate a lightweight anomaly detection pipeline** capable of operating efficiently in **resource-constrained environments**. Specifically, the solution must support:
+Modern edge devices and industrial systems increasingly depend on real-time telemetry data to maintain reliability, safety, and performance. These devices emit high-frequency metrics—such as CPU usage, memory consumption, execution time, and power draw—that can be monitored to detect early signs of stress, faults, or degradation.
 
-Real-time inference on edge devices (without GPU acceleration)
+This project aims to **develop and benchmark a lightweight anomaly detection pipeline** optimized for **resource-constrained environments**. Specifically, it supports:
 
-Low memory and storage footprint
+- Real-time inference on CPU-only edge devices  
+- Low memory and storage footprint  
+- Accurate detection of abnormal behavior from telemetry inputs  
 
-Accurate detection of abnormal system behavior based on telemetry inputs
+The solution employs a two-stage machine learning approach:  
+- **Unsupervised learning** using `IsolationForest` for anomaly discovery  
+- **Supervised proxy modeling** via `RandomForestClassifier`, trained on pseudo-labels to enable ONNX conversion  
 
-To accomplish this, we use a machine learning–based anomaly detection strategy that combines **unsupervised learning (Isolation Forest)** with a **supervised proxy model (Random Forest)** for ONNX compatibility. The goal is to benchmark both models and optimize for deployment via ONNX Runtime.
+The final goal is to compare both models and optimize for deployment using ONNX Runtime.
 
 #### 📊 Chosen Dataset: Intel CPU Telemetry Dataset
 - Dataset Name: `intel-cpu-dataset`
@@ -96,52 +102,59 @@ To accomplish this, we use a machine learning–based anomaly detection strategy
 
 #### 🧾 Features Included
 
-| Feature Name                  | Description                                        |
-|------------------------------|----------------------------------------------------|
-| `vm_id`, `timestamp`         | Identifiers for system and time series            |
-| `cpu_usage`                  | CPU utilization percentage                         |
-| `memory_usage`               | Memory consumption in MB                           |
-| `network_traffic`            | Network activity in MB/s                           |
-| `power_consumption`          | Power draw in watts                                |
-| `num_executed_instructions`  | Instruction count for tasks                        |
-| `execution_time`             | Time taken to complete task (ms)                   |
-| `energy_efficiency`          | Derived metric: work done per energy unit          |
-| `task_priority`              | Integer indicating criticality level               |
-| `task_type_*` (3 binary fields) | Task workload type: compute, IO, network       |
-| `task_status`                | Label: 0 = normal, 1 = failed (target for detection) |
+| Feature Name                   | Description                                                                 |
+|-------------------------------|-----------------------------------------------------------------------------|
+| `vm_id`, `timestamp`          | Unique identifiers for each virtual machine and time record                |
+| `cpu_usage`                   | CPU utilization percentage (`0–100%`)                                      |
+| `memory_usage`                | Memory usage in megabytes (MB)                                             |
+| `network_traffic`             | Network throughput in megabytes per second (MB/s)                          |
+| `power_consumption`           | Power usage in watts (W)                                                   |
+| `num_executed_instructions`   | Total instructions executed during the task                                |
+| `execution_time`              | Task completion time in milliseconds (ms)                                  |
+| `energy_efficiency`           | Computed metric: `instructions / (power * time)`                           |
+| `task_priority`               | Integer score denoting task importance or urgency                          |
+| `task_type_compute`           | Binary flag: 1 if task is compute-intensive, else 0                        |
+| `task_type_io`                | Binary flag: 1 if task is I/O-bound, else 0                                |
+| `task_type_network`           | Binary flag: 1 if task is network-related, else 0                          |
+| `task_status`                 | Ground truth label: `0` = normal, `1` = failure                            |
 
 #### 🧠 Relevance to PC Telemetry
-This dataset captures the exact kind of low-level hardware telemetry used in real-world edge monitoring systems. Each row represents a snapshot of system behavior during task execution, and failure labels indicate deviations from normal behavior, making it ideal for training anomaly detection models. The fields align with commonly observed PC metrics like:
-- Resource usage (CPU, memory)
-- Execution efficiency (power, time)
-- Operational context (task type and priority)
+This dataset mirrors the type of low-level hardware telemetry commonly collected in edge and embedded monitoring systems. Each row captures a moment-in-time snapshot of system performance during task execution, accompanied by a label indicating normal or failed behavior. This structure makes it highly suitable for training and evaluating anomaly detection models.
 
-These features simulate data you'd collect from an edge device, such as an embedded controller, industrial PC, or IoT system, making this dataset a realistic proxy for PC telemetry applications.
+The features closely reflect standard PC and embedded telemetry signals, including:
+- Resource consumption — CPU usage, memory usage
+- Efficiency metrics — power draw, execution time, energy efficiency
+- Operational context — task type (compute, I/O, network) and priority level
+
+Together, these attributes simulate real-world data streams from platforms such as industrial PCs, embedded controllers, and IoT devices, making the dataset a realistic and valuable proxy for practical anomaly detection in telemetry-rich environments.
+
 
 
 ### 🔍 Key Findings from EDA
 The exploratory data analysis (EDA) revealed distinct patterns separating normal and anomalous task executions in the telemetry dataset:
-| Aspect              | Normal Behavior                              | Anomalous Behavior (Failures)                          |
-|---------------------|-----------------------------------------------|--------------------------------------------------------|
-| `cpu_usage`         | Generally moderate (20–60%)                  | Often abnormally high (>80%) or unusually low         |
-| `memory_usage`      | Consistently within mid-range values         | Sharp spikes or drops near system limits              |
-| `network_traffic`   | Normalized traffic depending on task type    | Sudden drops or idle behavior in network tasks        |
-| `power_consumption` | Correlated with CPU/memory use               | High power draw without matching performance          |
-| `execution_time`    | Relatively consistent per task type          | Often significantly prolonged                         |
-| `energy_efficiency` | Stable, high-efficiency ratio                | Marked degradation (lower work-per-watt)              |
-| `task_status`       | `0` (Normal)                                 | `1` (Failure / Anomaly)                               |
-
+| Aspect              | Normal Behavior                               | Anomalous Behavior (Failures)                          |
+|---------------------|------------------------------------------------|--------------------------------------------------------|
+| `cpu_usage`         | Typically moderate (20–60%)                   | Spikes above 80% or unusually low idle usage          |
+| `memory_usage`      | Stays within consistent mid-range levels      | Abrupt surges or drops near capacity limits           |
+| `network_traffic`   | Aligned with expected task profiles           | Unexpected inactivity or sudden drops in throughput   |
+| `power_consumption` | Proportional to resource usage                | High draw with little corresponding output            |
+| `execution_time`    | Predictable per task type                     | Frequently delayed or irregular durations             |
+| `energy_efficiency` | Consistently high (effective performance/watt)| Noticeable decline, indicating inefficiency           |
+| `task_status`       | `0` (Normal execution)                        | `1` (Labeled failure or anomaly)                      |
 
 #### 📈 Distributional Insight:
-- Anomaly scores from IsolationForest showed clear right-skewed distribution, with failed samples having higher scores.
-- Visualizations indicated that anomalies cluster in regions of extreme feature values (e.g., high power + long execution time + low efficiency).
+- **Anomaly scores** from IsolationForest exhibited a right-skewed distribution, with **failed samples consistently scoring higher**, indicating stronger outlier behavior.
+- **Visual analysis** revealed that anomalies tend to **cluster around extreme feature values**, such as **high power consumption**, **prolonged execution time**, and **low energy efficiency**, reinforcing their separation from normal operational patterns.
+
 
 #### 🧠 Interpretation:
-These patterns indicate that anomalous system behavior is typically resource-inefficient, erratic in execution time, or misaligned with expected task profiles — making the dataset well-suited for anomaly detection using both unsupervised and supervised approaches.
+These patterns indicate that anomalous system behavior is typically **resource-inefficient, inconsistent in execution time**, or **misaligned with expected task characteristics**. Such clear deviations make the dataset well-suited for anomaly detection using both **unsupervised** and **supervised** machine learning approaches.
 
 
 ### 🧠 Model Approach and Reasoning
-This project uses a **hybrid machine learning strategy** to detect anomalies in telemetry data. The approach combines the strengths of both **unsupervised learning** (for anomaly scoring) and **supervised learning** (for ONNX compatibility and deployment efficiency).
+This project adopts a **hybrid machine learning strategy** to detect anomalies in telemetry data, leveraging the strengths of both modeling paradigms. The approach combines:
+- **Unsupervised learning** (IsolationForest) to assign anomaly scores without requiring labeled data
+- **Supervised learning** (RandomForestClassifier) trained on pseudo-labels for compatibility with ONNX export and efficient deployment
 
 #### 🔍 1. Algorithm Choice
 | Model Type           | Algorithm              | Purpose                                                                 |
@@ -166,15 +179,19 @@ This project uses a **hybrid machine learning strategy** to detect anomalies in 
 #### 📊 3. Performance Metrics
 | Metric            | Description                                                       |
 |-------------------|-------------------------------------------------------------------|
-| `Anomaly Score`   | Output from `IsolationForest` to rank severity                    |
 | `Inference Time`  | Avg time per sample measured on CPU for both models              |
 | `Model Size`      | File size comparison (`.pkl` vs `.onnx`)                          |
 | `ONNX Optimization` | Inference speedup (~25× faster than raw scikit-learn model)     |
 
 Performance results showed:
-- Inference time for the ONNX model: 0.000054 s/sample
-- Inference time for the Isolation Forest model: 0.001299 s/sample
-- ONNX model is ~3.7× larger in size, but significantly faster for real-time deployment
+- Inference time for the ONNX model: 0.000052 s/sample
+- Inference time for the Isolation Forest model: 0.002573 s/sample
+- Inference time for the Random Forest model: 0.002832 s/sample
+- ONNX model is ~2.2× larger than the Random Forest model, but ~54× faster in inference
+- ONNX model is ~2.4× smaller than the Isolation Forest model, yet delivers ~49× faster inference
+
+These results highlight the ONNX model's suitability for real-time, CPU-only deployment in edge environments.
+
 
 ### ⚙️ Model Optimization and Impact
 To enable efficient **edge deployment**, the scikit-learn model (`RandomForestClassifier`) was converted to **ONNX format** using skl2onnx. While `IsolationForest` is not directly supported in ONNX, we used it to generate **pseudo-labels** for training a compatible `RandomForestClassifier`. This proxy model enabled export to ONNX format and benefited from faster inference and reduced overhead in runtime environments.
@@ -186,16 +203,18 @@ To enable efficient **edge deployment**, the scikit-learn model (`RandomForestCl
 
 ### 📊 Performance Comparison
 
-| Metric           | scikit-learn (.pkl) | ONNX (.onnx)       | Improvement             |
-|------------------|---------------------|---------------------|--------------------------|
-| File Size (KB)   | 1121.48 KB           | 470.51 KB           | ~3.7× larger             |
-| Inference Time   | 0.002816 sec/sample   | 0.000026 sec/sample  | ~24× faster              |
-| GPU Used         | ❌                  | ❌                  | CPU-only for both        |
+| Metric           | Isolation Forest (.pkl) | Random Forest (.pkl) | ONNX (.onnx)         | ONNX Improvement                                                    |
+|------------------|--------------------------|------------------------|-----------------------|----------------------------------------------------------------------|
+| File Size (KB)   | 1139.14 KB               | 214.80 KB              | 470.51 KB             | ~2.4× smaller than Isolation Forest, ~2.2× larger than Random Forest |
+| Inference Time   | 0.002573 sec/sample      | 0.002832 sec/sample    | 0.000052 sec/sample   | ~49× faster than Isolation Forest, ~54× faster than Random Forest    |
+| GPU Used         | ❌                       | ❌                     | ❌                    | CPU-only execution for all                                           |
 
 #### 📌 Observations
-- TThe ONNX model is **~2.4× smaller** in size and delivers a **~108× faster inference time** compared to the native `IsolationForest` implementation..
-- This highlights ONNX Runtime's efficiency, especially for deployment scenarios requiring high-throughput or real-time inference.
-- The ONNX model was derived from a supervised proxy (`RandomForestClassifier`) trained on labels generated by `IsolationForest`, enabling compatibility with ONNX while preserving anomaly detection logic.
+- The ONNX model offers the best trade-off between speed and size for deployment.
+- It is approximately 49× faster than Isolation Forest and 54× faster than Random Forest in per-sample inference time.
+- Despite being 2.2× larger than the Random Forest model, ONNX is still 2.4× smaller than the Isolation Forest model.
+- All models were executed without GPU acceleration, confirming ONNX's suitability for real-time, CPU-only environments.
+- The Random Forest model serves as an effective supervised proxy for converting unsupervised anomaly detection into an ONNX-compatible format.
 
 
 ### 🖥️ Integration into a Dell PC Environment
@@ -230,4 +249,4 @@ This setup allows for **scalable, privacy-aware, and hardware-friendly anomaly d
 ## 👤 Author
 Seah Chen Khoon
 
-Last updated: 25 June 2025
+Last updated: 26 June 2025
